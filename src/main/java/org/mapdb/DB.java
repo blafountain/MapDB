@@ -1069,6 +1069,54 @@ public class DB implements Closeable {
         return ret;
     }
 
+    synchronized public <E> List<E> getList(String name) {
+        checkNotClosed();
+        Lists.LinkedList<E> ret = (Lists.LinkedList<E>) getFromWeakCollection(name);
+        if(ret!=null) return ret;
+        String type = catGet(name + ".type", null);
+        if(type==null){
+            checkShouldCreate(name);
+            if(engine.isReadOnly()){
+                Engine e = new StoreHeap();
+                new DB(e).getList("a");
+                return namedPut(name,
+                        new DB(new EngineWrapper.ReadOnlyEngine(e)).getList("a"));
+            }
+            return createList(name,null,true);
+        }
+        checkType(type, "LinkedList");
+
+        ret = new Lists.LinkedList<E>(engine,
+                (Serializer<E>) catGet(name+".serializer",getDefaultSerializer()),
+                (Long)catGet(name+".headRecid"),
+                (Long)catGet(name+".tailRecid"),
+                (Boolean)catGet(name+".useLocks")
+        );
+
+        namedPut(name, ret);
+        return ret;
+    }
+
+    synchronized public <E> List<E> createList(String name, Serializer<E> serializer, boolean useLocks) {
+        checkNameNotExists(name);
+
+        long headRecid = engine.put(0L, Serializer.LONG);
+        long tailRecid = engine.put(0L, Serializer.LONG);
+
+        Lists.LinkedList<E> ret = new Lists.LinkedList<E>(engine,
+                catPut(name+".serializer",serializer,getDefaultSerializer()),
+                catPut(name+".headRecid",headRecid),
+                catPut(name+".tailRecid",tailRecid),
+                catPut(name+".useLocks",useLocks)
+        );
+        ret.init();
+
+        catalog.put(name + ".type", "LinkedList");
+        namedPut(name, ret);
+        return ret;
+
+    }
+
     synchronized public <E> BlockingQueue<E> getQueue(String name) {
         checkNotClosed();
         Queues.Queue<E> ret = (Queues.Queue<E>) getFromWeakCollection(name);
