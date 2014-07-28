@@ -20,22 +20,20 @@ public class Lists {
 
     public static class LinkedList<E> implements List<E> {
 
-        protected static class LinkedListIterator<E> implements ListIterator<E>, Iterator<E> {
+        protected static class LinkedListIterator<E> implements Iterator<E> {
             Node<E> current;
-            long currentRef;
-
-            long tail;
-            long head;
+            long currentRecId;
+            Node<E> prev;
+            long preRecId;
             LinkedList<E> list;
 
             LinkedListIterator(LinkedList<E> list) {
                 this.list = list;
 
-                this.head = list.head.get();
-                this.tail = list.tail.get();
+                currentRecId = list.head.get();
+                current = list.engine.get(currentRecId, list.nodeSerializer);
 
-                currentRef = head;
-                current = list.engine.get(head, list.nodeSerializer);
+                next();
             }
 
             @Override
@@ -46,66 +44,22 @@ public class Lists {
             @Override
             public E next() {
                 // special case
-                if(currentRef == head) {
-                    Node<E> ret = list.engine.get(current.next, list.nodeSerializer);
+                do {
+                    prev = current;
+                    preRecId = currentRecId;
+                    currentRecId = current.next;
+                    current = list.engine.get(currentRecId, list.nodeSerializer);
 
-                    currentRef = ret.next;
-                    current = list.engine.get(ret.next, list.nodeSerializer);
-                    return ret.value;
-                } else {
-                    Node<E> ret = current;
-
-                    currentRef = current.next;
-                    current = list.engine.get(current.next, list.nodeSerializer);
-                    return ret.value;
-                }
-            }
-
-            @Override
-            public boolean hasPrevious() {
-                return current.prev != 0;
-            }
-
-            @Override
-            public E previous() {
-                if(currentRef == tail) {
-                    Node<E> ret = list.engine.get(current.prev, list.nodeSerializer);
-
-                    currentRef = ret.prev;
-                    current = list.engine.get(ret.prev, list.nodeSerializer);
-                    return ret.value;
-                } else {
-                    Node<E> ret = current;
-
-                    currentRef = current.prev;
-                    current = list.engine.get(current.prev, list.nodeSerializer);
-                    return ret.value;
-                }
-            }
-
-            @Override
-            public int nextIndex() {
-                throw new UnsupportedOperationException();
-            }
-
-            @Override
-            public int previousIndex() {
-                throw new UnsupportedOperationException();
+                    // detect if the node was deleted and just skip past it
+                    if(!prev.deleted) {
+                        return prev.value;
+                    }
+                } while(true);
             }
 
             @Override
             public void remove() {
-                throw new UnsupportedOperationException();
-            }
-
-            @Override
-            public void set(E e) {
-                throw new UnsupportedOperationException();
-            }
-
-            @Override
-            public void add(E e) {
-                throw new UnsupportedOperationException();
+                list.remove(preRecId, prev, currentRecId, current);
             }
         }
 
@@ -118,9 +72,9 @@ public class Lists {
 
             @Override
             public void serialize(DataOutput out, Node<E> value) throws IOException {
-                DataOutput2.packLong(out,value.prev);
                 DataOutput2.packLong(out,value.next);
 
+                out.writeBoolean(value.deleted);
                 out.writeByte(value.value == null ? 0 : 1);
                 if(value.value != null)
                     serializer.serialize(out, value.value);
@@ -128,8 +82,8 @@ public class Lists {
 
             @Override
             public Node<E> deserialize(DataInput in, int available) throws IOException {
-                long prev = DataInput2.unpackLong(in);
                 long next = DataInput2.unpackLong(in);
+                boolean deleted = in.readBoolean();
                 boolean hasValue = in.readByte() == 1;
                 E value = null;
 
@@ -137,7 +91,7 @@ public class Lists {
                     value = serializer.deserialize(in, -1);
                 }
 
-                return new Node<E>(prev, next, value);
+                return new Node<E>(next, value, deleted);
             }
 
             @Override
@@ -148,18 +102,23 @@ public class Lists {
         }
 
         protected static final class Node<E> {
-            protected static final Node<?> EMPTY = new Node(0L, 0L, null);
+            protected static final Node<?> EMPTY = new Node(0L, null);
 
-            final long prev;
             final long next;
+            final boolean deleted;
             final E value;
 
-            public Node(long prev, long next, E value) {
-                this.prev = prev;
+            public Node(long next, E value) {
                 this.next = next;
+                this.deleted = false;
                 this.value = value;
             }
 
+            public Node(long next, E value, boolean deleted) {
+                this.next = next;
+                this.deleted = deleted;
+                this.value = value;
+            }
         }
 
         protected final Engine engine;
@@ -168,11 +127,6 @@ public class Lists {
 
         protected final Atomic.Long head;
         protected final Atomic.Long tail;
-
-        // global lock
-        protected final Lock lock = new ReentrantLock(CC.FAIR_LOCKS);
-        // per rec lock
-        protected final LongConcurrentHashMap<Thread> nodeLocks = new LongConcurrentHashMap<Thread>();
 
         public LinkedList(Engine engine, Serializer<E> serializer, long headRecidRef, long tailRecidRef, boolean useLocks) {
             this.engine = engine;
@@ -185,39 +139,57 @@ public class Lists {
         }
 
         public void init() {
-            long headId = this.engine.put((Node<E>)Node.EMPTY, nodeSerializer);
-            long tailId = this.engine.put(new Node<E>(headId, 0, null), nodeSerializer);
+            long tailId = this.engine.put((Node<E>)Node.EMPTY, nodeSerializer);
+            long headId = this.engine.put(new Node<E>(tailId, null), nodeSerializer);
 
-            this.engine.update(headId, new Node<E>(0, tailId, null), nodeSerializer);
             this.head.set(headId);
             this.tail.set(tailId);
         }
 
         @Override
         public boolean add(E e) {
-            // create a new tail and point the prev node to the existing tail
-            long currentTailId = tail.get();
+            long newTail = engine.put((Node<E>) Node.EMPTY, nodeSerializer);
 
-            Node<E> newTailNode = new Node<E>(currentTailId, 0, null);
-            long newTailId = engine.put(newTailNode, nodeSerializer);
+            do {
+                long oldTail = tail.get();
+                Node<E> tailNode = engine.get(oldTail, nodeSerializer);
+                Node<E> newEntry = new Node<E>(newTail, e);
 
-            while(!tail.compareAndSet(currentTailId, newTailId)) {
-                currentTailId = tail.get();
+                // so here we want to make sure our node safely gets into
+                //  the linked list with the pointers correct...
+                if(engine.compareAndSwap(oldTail, tailNode, newEntry, nodeSerializer)) {
+                    // now lets move our tail pointer, if there happens to be
+                    //  another thread that has already updated the tail pointer,
+                    //  then we still should be good since the node has already
+                    //  correctly been inserted and we will only forward the pointer
+                    //  if its still what we think it is
+                    tail.compareAndSet(oldTail, newTail);
+                    return true;
+                }
+            }while(true);
+        }
 
-                newTailNode = new Node<E>(currentTailId, 0, null);
-                engine.update(newTailId, newTailNode, nodeSerializer);
-            }
+        public boolean insert(long afterRecId, E value) {
+            return true;
+        }
 
-            // update the 'old' tail with our new values
-            lock(nodeLocks, currentTailId);
-            try {
-                Node<E> current = engine.get(currentTailId, nodeSerializer);
+        public boolean remove(long prevRecId, Node<E> prev, long recId, Node<E> remove) {
+            // first we are going to logically mark the node as deleted
+            //  according to http://research.microsoft.com/pubs/67089/2001-disc.pdf
+            //  then we are going to do a second cas to physically remove the node
+            do {
+                if(engine.compareAndSwap(prev.next, remove, new Node<E>(remove.next, null, true), nodeSerializer)) {
+                    break;
+                }
+                remove = engine.get(recId, nodeSerializer);
 
-                engine.update(currentTailId, new Node<E>(current.prev, newTailId, e), nodeSerializer);
-            } finally {
-                unlock(nodeLocks, currentTailId);
-            }
+                // we're already deleted
+                if(!remove.deleted) {
+                    return true;
+                }
+            } while(true);
 
+            engine.compareAndSwap(prevRecId, prev, new Node<E>(remove.next, prev.value), nodeSerializer);
             return true;
         }
 
@@ -228,31 +200,14 @@ public class Lists {
 
         @Override
         public ListIterator<E> listIterator() {
-            return new LinkedListIterator<E>(this);
+            // TODO: support indexs!
+            return null;
         }
 
         @Override
         public ListIterator<E> listIterator(int index) {
             // TODO: support indexs!
             return null;
-        }
-
-        // locking
-        protected static void unlock(LongConcurrentHashMap<Thread> locks,final long recid) {
-            final Thread t = locks.remove(recid);
-            assert(t==Thread.currentThread()):("unlocked wrong thread");
-        }
-
-        protected static void lock(LongConcurrentHashMap<Thread> locks, long recid){
-            //feel free to rewrite, if you know better (more efficient) way
-
-            final Thread currentThread = Thread.currentThread();
-            //check node is not already locked by this thread
-            assert(locks.get(recid)!= currentThread):("node already locked by current thread: "+recid);
-
-            while(locks.putIfAbsent(recid, currentThread) != null){
-                LockSupport.parkNanos(10);
-            }
         }
 
         /// TODO....

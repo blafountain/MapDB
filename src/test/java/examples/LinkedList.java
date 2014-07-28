@@ -25,6 +25,7 @@ public class LinkedList {
                 //.cacheDisable()
                 //.transactionDisable()
                 .closeOnJvmShutdown()
+                .deleteFilesAfterClose()
                 .make();
 
         List<String> list = db.getList("test");
@@ -40,6 +41,7 @@ public class LinkedList {
             System.out.println(i);
         }
 
+        /*
         System.out.println("iterate forward");
         ListIterator<String> iterator = list.listIterator();
         while(iterator.hasNext()) {
@@ -72,12 +74,13 @@ public class LinkedList {
         BTreeMap<Integer, Integer> s = db.getTreeMap("asdf");
 
         for(int i = 0;i < count;i++) {
-            s.put(i, i);
+               s.put(i, i);
         }
         len = (System.currentTimeMillis() - start) / 1000.0f;
         System.out.println("time - " + len);
         System.out.println("     - " + (count / len));
-        db.close();
+        */
 
+        db.close();
     }
 }
