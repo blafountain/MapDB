@@ -1,9 +1,6 @@
 package examples;
 
-import org.mapdb.BTreeMap;
-import org.mapdb.DB;
-import org.mapdb.DBMaker;
-import org.mapdb.Serializer;
+import org.mapdb.*;
 
 import java.io.File;
 import java.io.IOException;
@@ -28,6 +25,13 @@ public class LinkedList {
                 .deleteFilesAfterClose()
                 .make();
 
+        Documents.DocumentMap m = db.getDocumentMap("test");
+
+        Documents.Document d = m.create("asdf");
+
+        d.put("test", 1234);
+
+        // linked list
         List<String> list = db.getList("test");
 
         list.add("1asdfasfdasdfa");
@@ -70,16 +74,18 @@ public class LinkedList {
 
         start = System.currentTimeMillis();
 
+        */
         // test btree
+        int count = 50;
         BTreeMap<Integer, Integer> s = db.getTreeMap("asdf");
 
         for(int i = 0;i < count;i++) {
                s.put(i, i);
         }
-        len = (System.currentTimeMillis() - start) / 1000.0f;
-        System.out.println("time - " + len);
-        System.out.println("     - " + (count / len));
-        */
+        s.printTreeStructure();
+        //len = (System.currentTimeMillis() - start) / 1000.0f;
+        //System.out.println("time - " + len);
+        //System.out.println("     - " + (count / len));
 
         db.close();
     }

@@ -1069,6 +1069,51 @@ public class DB implements Closeable {
         return ret;
     }
 
+    synchronized public Documents.DocumentMap getDocumentMap(String name) {
+        checkNotClosed();
+        Documents.DocumentMap ret = (Documents.DocumentMap) getFromWeakCollection(name);
+        if(ret!=null) return ret;
+        String type = catGet(name + ".type", null);
+        if(type==null){
+            checkShouldCreate(name);
+            if(engine.isReadOnly()){
+                Engine e = new StoreHeap();
+                new DB(e).getList("a");
+                return namedPut(name,
+                        new DB(new EngineWrapper.ReadOnlyEngine(e)).getList("a"));
+            }
+            return createDocumentMap(name, true);
+        }
+        checkType(type, "DocumentMap");
+
+        ret = new Documents.DocumentMap(engine,
+                (Long)catGet(name+".rootRecidRef"),
+                (Boolean)catGet(name+".useLocks")
+        );
+
+        namedPut(name, ret);
+        return ret;
+    }
+
+    synchronized public Documents.DocumentMap createDocumentMap(String name, boolean useLocks) {
+        checkNameNotExists(name);
+
+        long rootRecId = BTreeMap.createRootRef(engine,
+                BTreeKeySerializer.BASIC,Serializer.BASIC,
+                BTreeMap.COMPARABLE_COMPARATOR,0);
+
+        Documents.DocumentMap ret = new Documents.DocumentMap(engine,
+                catPut(name+".rootRecidRef",rootRecId),
+                catPut(name+".useLocks",useLocks)
+        );
+
+        catalog.put(name + ".type", "DocumentMap");
+        namedPut(name, ret);
+        return ret;
+
+    }
+
+
     synchronized public <E> List<E> getList(String name) {
         checkNotClosed();
         Lists.LinkedList<E> ret = (Lists.LinkedList<E>) getFromWeakCollection(name);

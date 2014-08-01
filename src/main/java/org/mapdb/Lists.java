@@ -9,6 +9,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.ListIterator;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.LockSupport;
 import java.util.concurrent.locks.ReentrantLock;
@@ -17,6 +18,124 @@ import java.util.concurrent.locks.ReentrantLock;
  * Created by blafountain on 7/25/2014.
  */
 public class Lists {
+
+    public static class SkipList<E> {
+
+        protected static class NodeSerializer<E> implements Serializer<Node<E>> {
+            private final Serializer<E> serializer;
+
+            public NodeSerializer(Serializer<E> serializer) {
+                this.serializer = serializer;
+            }
+
+            @Override
+            public void serialize(DataOutput out, Node<E> value) throws IOException {
+                DataOutput2.packLong(out,value.prev);
+                DataOutput2.packLong(out,value.next);
+                DataOutput2.packLong(out,value.up);
+                DataOutput2.packLong(out,value.down);
+
+                out.writeByte(value.value == null ? 0 : 1);
+                if(value.value != null)
+                    serializer.serialize(out, value.value);
+            }
+
+            @Override
+            public Node<E> deserialize(DataInput in, int available) throws IOException {
+                long prev = DataInput2.unpackLong(in);
+                long next = DataInput2.unpackLong(in);
+                long up = DataInput2.unpackLong(in);
+                long down = DataInput2.unpackLong(in);
+                boolean hasValue = in.readByte() == 1;
+                E value = null;
+
+                if(hasValue) {
+                    value = serializer.deserialize(in, -1);
+                }
+
+                return new Node<E>(prev, next, up, down, value);
+            }
+
+            @Override
+            public int fixedSize() {
+                return -1;
+            }
+
+        }
+
+        protected static final class Node<E> {
+            protected static final Node<?> EMPTY = new Node(0L, 0L, 0L, 0L, null);
+
+            final long next;
+            final long prev;
+            final long up;
+            final long down;
+
+            final E value;
+
+            public Node(long prev, long next, long up, long down, E value) {
+                this.prev = prev;
+                this.next = next;
+                this.up = up;
+                this.down = down;
+                this.value = value;
+            }
+        }
+
+        protected final Engine engine;
+//        protected final Serializer<K> serializer;
+//        protected final Serializer<Node<E>> nodeSerializer;
+
+        protected final Atomic.Long head;
+        protected final Atomic.Long tail;
+
+        public SkipList(Engine engine, Serializer<E> serializer, long headRecidRef, long tailRecidRef, boolean useLocks) {
+            this.engine = engine;
+
+            this.head = new Atomic.Long(engine, headRecidRef);
+            this.tail = new Atomic.Long(engine, tailRecidRef);
+
+//            this.serializer = serializer;
+//            nodeSerializer = new NodeSerializer<E>(serializer);
+        }
+
+        public void init() {
+//            long tailId = this.engine.put((Node<E>)Node.EMPTY, nodeSerializer);
+//            long headId = this.engine.put(new Node<E>(tailId, null), nodeSerializer);
+//
+//            this.head.set(headId);
+//            this.tail.set(tailId);
+        }
+
+        public boolean add(E value) {
+
+            /*
+            long newTail = engine.put((Node<E>) Node.EMPTY, nodeSerializer);
+
+            do {
+                long oldTail = tail.get();
+                Node<E> tailNode = engine.get(oldTail, nodeSerializer);
+                Node<E> newEntry = new Node<E>(newTail, e);
+
+                // so here we want to make sure our node safely gets into
+                //  the linked list with the pointers correct...
+                if(engine.compareAndSwap(oldTail, tailNode, newEntry, nodeSerializer)) {
+                    // now lets move our tail pointer, if there happens to be
+                    //  another thread that has already updated the tail pointer,
+                    //  then we still should be good since the node has already
+                    //  correctly been inserted and we will only forward the pointer
+                    //  if its still what we think it is
+                    tail.compareAndSet(oldTail, newTail);
+                    return true;
+                }
+            }while(true);
+            */
+            return true;
+        }
+
+    }
+
+
 
     public static class LinkedList<E> implements List<E> {
 

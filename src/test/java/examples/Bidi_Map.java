@@ -15,23 +15,25 @@ public class Bidi_Map {
 
     public static void main(String[] args) {
         //primary map
-        HTreeMap<Long,String> map = DBMaker.newTempHashMap();
+        HTreeMap<String,Long> map = DBMaker.newTempHashMap();
 
         // inverse mapping for primary map
-        NavigableSet<Fun.Tuple2<String, Long>> inverseMapping = new TreeSet<Fun.Tuple2<String, Long>>();
+        NavigableSet<Fun.Tuple2<Long, String>> inverseMapping = new TreeSet<Fun.Tuple2<Long, String>>();
         //NOTE: you may also use Set provided by MapDB to make it persistent
 
         // bind inverse mapping to primary map, so it is auto-updated
         Bind.mapInverse(map, inverseMapping);
 
 
-        map.put(10L,"value2");
-        map.put(1111L,"value");
-        map.put(1112L,"value");
-        map.put(11L,"val");
+        map.put("value1", 10L);
+        map.put("value2", 10L);
+        map.put("value3", 1112L);
+        map.put("val4", 111L);
+
+        map.remove("value2");
 
         //now find all keys for given value
-        for(Long key: Fun.filter(inverseMapping, "value")){
+        for(String key: Fun.filter(inverseMapping, 10L)){
             System.out.println("Key for 'value' is: "+key);
         }
 

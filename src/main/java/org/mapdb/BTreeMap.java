@@ -568,8 +568,6 @@ public class BTreeMap<K,V> extends AbstractMap<K,V>
         return engine.put(rootRecidVal,Serializer.LONG);
     }
 
-
-
     /**
      * Find the first children node with a key equal or greater than the given key.
      * If all items are smaller it returns `keys.length`
